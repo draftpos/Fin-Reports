@@ -1,3 +1,4 @@
+
 frappe.query_reports["Item Stock Report"] = {
     "filters": [
         {
