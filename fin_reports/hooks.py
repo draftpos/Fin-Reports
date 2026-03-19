@@ -247,3 +247,17 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+# hooks.py in your app (fin_reports or your custom app)
+
+fixtures = [
+    # Export custom fields on Item UOM child table
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["name", "in", [
+                "UOM Conversion Detail-custom_main",
+                "UOM Conversion Detail-custom_second_uom"
+            ]]
+        ]
+    }
+]

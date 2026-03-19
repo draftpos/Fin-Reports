@@ -5,9 +5,14 @@ def execute(filters=None):
     columns = get_columns()
     data = []
 
+    # Only filter by warehouse at DB level
+    db_filters = {}
+    if filters.get("warehouse"):
+        db_filters["warehouse"] = filters["warehouse"]
+
     bins = frappe.db.get_all(
         "Bin",
-        filters=filters,
+        filters=db_filters,
         fields=["item_code", "warehouse", "actual_qty", "valuation_rate", "stock_value"]
     )
 
@@ -20,16 +25,23 @@ def execute(filters=None):
         cost_main = b.valuation_rate or 0
         cost_second = 0
 
-        for u in item.uoms:  # 'uoms' is the child table fieldname
+        # Check child UOMs
+        for u in item.uoms:
             if u.get("custom_main"):
                 main_uom = u.uom
             if u.get("custom_second_uom"):
                 second_uom = u.uom
+                # Only calculate second UOM if filter matches
+                if filters.get("uom") and filters["uom"] != second_uom:
+                    continue
                 if u.conversion_factor:
                     second_qty = units // u.conversion_factor
-                    units = units % u.conversion_factor  # remaining units
-                    # calculate cost per box / second UOM
+                    units = units % u.conversion_factor
                     cost_second = cost_main * u.conversion_factor
+
+        # Skip this row if UOM filter is set and neither main nor second matches
+        if filters.get("uom") and filters["uom"] not in (main_uom, second_uom):
+            continue
 
         data.append({
             "item_code": b.item_code,
