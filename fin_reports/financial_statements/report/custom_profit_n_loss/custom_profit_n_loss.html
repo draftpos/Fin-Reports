@@ -1,0 +1,115 @@
+<div class="financial-statement">
+	<div class="print-header">
+		<h2 class="text-center">{{ company }}</h2>
+		<h4 class="text-center">{{ report_name }}</h4>
+		<p class="text-center">{{ _("Period: {0} to {1}").format(filters.from_date or filters.from_fiscal_year, filters.to_date or filters.to_fiscal_year) }}</p>
+	</div>
+
+	<table class="table table-bordered table-condensed">
+		<thead>
+			<tr>
+				<th style="width: 70%">{{ _("Description") }}</th>
+				{% for col in columns[1:] %}
+					<th class="text-right">{{ _(col.label) }} ({{ currency }})</th>
+				{% endfor %}
+			</tr>
+		</thead>
+		<tbody>
+			{% for row in data %}
+				{% if not row.get("account_name") and not row.get("total") %}
+					<tr class="empty-row">
+						<td colspan="{{ columns|length }}">&nbsp;</td>
+					</tr>
+				{% else %}
+					<tr class="{% if row.is_group %}group-row{% endif %} {% if row.indent == 0 %}root-row{% endif %}">
+						<td style="padding-left: {{ row.indent * 15 }}px">
+							<span class="{% if row.is_group or row.indent == 0 %}bold{% endif %}">
+								{{ row.account_name or row.account }}
+							</span>
+						</td>
+						{% for col in columns[1:] %}
+							<td class="text-right {% if row.is_group or row.indent == 0 %}bold{% endif %}">
+								{% set val = row.get(col.fieldname, 0) %}
+								{% if val < 0 %}
+									({{ frappe.format(val | abs, col, row) }})
+								{% elif val == 0 and not row.is_group %}
+									-
+								{% else %}
+									{{ frappe.format(val, col, row) }}
+								{% endif %}
+							</td>
+						{% endfor %}
+					</tr>
+				{% endif %}
+			{% endfor %}
+		</tbody>
+	</table>
+</div>
+
+<style>
+	.financial-statement {
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		color: #1a202c;
+		margin: 20px;
+	}
+	.print-header {
+		margin-bottom: 30px;
+	}
+	.print-header h2 {
+		margin: 0;
+		font-weight: 700;
+		color: #2d3748;
+	}
+	.print-header h4 {
+		margin: 5px 0;
+		font-weight: 600;
+		color: #4a5568;
+	}
+	.table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+	.table th {
+		background-color: #f7fafc;
+		border-bottom: 2px solid #e2e8f0;
+		padding: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		font-size: 11px;
+		letter-spacing: 0.05em;
+	}
+	.table td {
+		padding: 8px 10px;
+		border-bottom: 1px solid #edf2f7;
+		font-size: 13px;
+	}
+	.bold {
+		font-weight: 700;
+	}
+	.group-row td {
+		background-color: #fafafa;
+	}
+	.root-row td {
+		border-top: 1px solid #e2e8f0;
+	}
+	.text-right {
+		text-align: right;
+	}
+	.text-center {
+		text-align: center;
+	}
+	.empty-row td {
+		border: none;
+		height: 20px;
+	}
+	
+	@media print {
+		.financial-statement {
+			margin: 0;
+		}
+		.table th {
+			background-color: #f0f0f0 !important;
+			-webkit-print-color-adjust: exact;
+		}
+	}
+</style>

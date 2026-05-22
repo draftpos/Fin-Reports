@@ -125,53 +125,80 @@ def build_statement_data(income_rows, expense_rows, period_list, currency, compa
             cleaned.append(r)
         return cleaned
 
-    def is_direct_income(r):
-        acc_type = (r.get("account_type") or "").lower().strip()
-        acc_name = (r.get("account_name") or "").lower().strip()
-        if acc_type in ("direct income", "direct incomes"): return True
-        if acc_name.startswith("direct income"): return True
-        # Fallback for main income roots
-        if cint(r.get("indent", 0)) == 0 and "indirect" not in acc_type and "indirect" not in acc_name:
-            return True
-        return False
+    def identify_section(rows, types, name_subset=None):
+        out = []
+        for r in rows:
+            acc_type = (r.get("account_type") or "").lower().strip()
+            acc_name = (r.get("account_name") or "").lower().strip()
+            if acc_type in types:
+                out.append(r)
+            elif name_subset and any(x in acc_name for x in name_subset):
+                out.append(r)
+        return out
 
-    def is_direct_expense(r):
-        acc_type = (r.get("account_type") or "").lower().strip()
-        acc_name = (r.get("account_name") or "").lower().strip()
-        if acc_type in ("direct expense", "direct expenses", "cost of goods sold"): return True
-        if acc_name.startswith("direct expense") or acc_name.startswith("cost of goods sold"): return True
-        if acc_name.startswith("direct expenses"): return True
-        return False
+    # 1. Sales Revenue (Direct Income)
+    sales_rows = identify_section(income_rows, ["direct income", "direct incomes", "income account"], ["sales", "revenue"])
+    sales_totals = sum_section_values(sales_rows, period_list)
 
-    # Filtered sections for custom Gross Profit
-    di_rows = [r for r in income_rows if is_direct_income(r)]
-    de_rows = [r for r in expense_rows if is_direct_expense(r)]
-    
-    direct_income_totals = sum_section_values(di_rows, period_list)
-    direct_expense_totals = sum_section_values(de_rows, period_list)
-    
-    # Gross Profit: Direct Income - Direct Expenses
-    custom_gross_profit_totals = subtract_section_values(direct_income_totals, direct_expense_totals, period_list)
-    
-    # Overall totals for Net Profit
-    income_totals = sum_section_values(income_rows, period_list)
-    expense_totals = sum_section_values(expense_rows, period_list)
-    # Profit = Income (Credit) - Expenses (Debit)
-    net_profit_totals = subtract_section_values(income_totals, expense_totals, period_list)
+    # 2. Cost of Sales
+    cos_rows = identify_section(expense_rows, ["cost of goods sold", "direct expense", "direct expenses"], ["cost of sales", "cost of goods sold"])
+    cos_totals = sum_section_values(cos_rows, period_list)
 
-    if income_rows:
-        sections.extend(copy_rows(income_rows, compare_map))
-        sections.append({})
+    # 3. Operating Expenses (All expenses except COS, Interest, Tax)
+    # We'll filter them by exclusion or explicit type
+    interest_tax_types = ["interest expense", "tax"]
+    interest_tax_names = ["interest", "tax", "income tax"]
+    op_ex_rows = [r for r in expense_rows if (r.get("account_type") or "").lower().strip() not in (interest_tax_types + ["cost of goods sold", "direct expense", "direct expenses"])
+                  and not any(x in (r.get("account_name") or "").lower() for x in interest_tax_names)
+                  and r not in cos_rows]
+    op_ex_totals = sum_section_values(op_ex_rows, period_list)
 
-    if expense_rows:
-        sections.extend(copy_rows(expense_rows, compare_map))
-        sections.append({})
+    # 4. Other Income
+    other_income_rows = identify_section(income_rows, ["indirect income", "indirect incomes"], ["other income"])
+    other_income_totals = sum_section_values(other_income_rows, period_list)
 
-    # Show the custom Gross Profit line
-    sections.append(make_subtotal_row(_("Gross Profit"), custom_gross_profit_totals, currency, period_list, compare_section_totals.get("gross_profit", 0.0)))
+    # 5. Interest & Tax
+    interest_rows = identify_section(expense_rows, ["interest expense"], ["interest"])
+    tax_rows = identify_section(expense_rows, ["tax"], ["tax", "income tax"])
+    interest_totals = sum_section_values(interest_rows, period_list)
+    tax_totals = sum_section_values(tax_rows, period_list)
+
+    # Calculations
+    gross_profit_totals = subtract_section_values(sales_totals, cos_totals, period_list)
+    op_profit_totals = subtract_section_values(gross_profit_totals, op_ex_totals, period_list)
+    ebt_totals = add_section_values(op_profit_totals, other_income_totals, period_list)
+    ebt_totals = subtract_section_values(ebt_totals, interest_totals, period_list)
+    net_profit_totals = subtract_section_values(ebt_totals, tax_totals, period_list)
+
+    # Building Data Rows for Print Format
+    # Headers
+    sections.append(make_subtotal_row(_("Sales Revenue"), sales_totals, currency, period_list))
+    sections.extend(copy_rows(cos_rows, compare_map))
+    sections.append(make_subtotal_row(_("Less: Cost of Sales"), cos_totals, currency, period_list))
+    sections.append(make_subtotal_row(_("Gross Profit"), gross_profit_totals, currency, period_list))
     sections.append({})
 
-    sections.append(make_subtotal_row(_("Profit for the year"), net_profit_totals, currency, period_list, compare_section_totals.get("net_profit", 0.0)))
+    sections.append(make_section_header(_("Operating Expenses"), currency, period_list))
+    sections.extend(copy_rows(op_ex_rows, compare_map))
+    sections.append(make_subtotal_row(_("Total Operating Expenses"), op_ex_totals, currency, period_list))
+    sections.append({})
+
+    sections.append(make_subtotal_row(_("Operating Profit"), op_profit_totals, currency, period_list))
+    sections.append({})
+
+    if other_income_rows:
+        sections.extend(copy_rows(other_income_rows, compare_map))
+    if interest_rows:
+        sections.extend(copy_rows(interest_rows, compare_map))
+
+    sections.append({})
+    sections.append(make_subtotal_row(_("Net Profit Before Tax"), ebt_totals, currency, period_list))
+    
+    if tax_rows:
+        sections.extend(copy_rows(tax_rows, compare_map))
+    
+    sections.append({})
+    sections.append(make_subtotal_row(_("Net Profit After Tax"), net_profit_totals, currency, period_list))
 
     return sections
 
